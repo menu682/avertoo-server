@@ -13,6 +13,15 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
 
+
+  redis:
+    image: redis:8
+    container_name: avertoo-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+
   avertoo-server:
     build:
       context: .
@@ -28,6 +37,8 @@ services:
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - "8080:8080"
 
