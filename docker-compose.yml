@@ -1,0 +1,35 @@
+services:
+
+  postgres:
+    image: postgres:18
+    container_name: avertoo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: avertoo
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  avertoo-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: avertoo-server
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: avertoo
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
