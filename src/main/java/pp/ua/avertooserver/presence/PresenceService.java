@@ -20,7 +20,8 @@ public class PresenceService {
 
     public void heartbeat(Long userId) {
 
-        String key = KEY_PREFIX + userId;
+        String key =
+                KEY_PREFIX + userId;
 
         redisTemplate.opsForValue().set(
                 key,
@@ -31,7 +32,8 @@ public class PresenceService {
 
     public boolean isOnline(Long userId) {
 
-        String key = KEY_PREFIX + userId;
+        String key =
+                KEY_PREFIX + userId;
 
         return Boolean.TRUE.equals(
                 redisTemplate.hasKey(key)
@@ -40,7 +42,8 @@ public class PresenceService {
 
     public void offline(Long userId) {
 
-        String key = KEY_PREFIX + userId;
+        String key =
+                KEY_PREFIX + userId;
 
         redisTemplate.delete(key);
     }

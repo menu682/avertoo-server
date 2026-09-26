@@ -30,6 +30,7 @@ public class SecurityConfig {
                                 "/api/users/login",
                                 "/api/users/refresh"
                         ).permitAll()
+                        .requestMatchers("/ws").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exception -> exception

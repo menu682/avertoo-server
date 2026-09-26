@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Avertoo Sender</title>
+</head>
+<body>
+
+<h2>Sender</h2>
+
+<button id="connect">Connect</button>
+<button id="disconnect">Disconnect</button>
+<button id="send">Send signal</button>
+
+<pre id="log"></pre>
+
+<script type="module">
+
+    import {Client} from
+            "https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.2.1/+esm";
+
+    const logElement =
+        document.getElementById("log");
+
+    const log = message => {
+        logElement.textContent +=
+            message + "\n";
+    };
+
+    const token =
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMDAwMDAwMDAwIiwiaWF0IjoxNzkwNDQyOTgzLCJleHAiOjE3OTA1MjkzODN9.LbRK6KUzG1Yk0IJ3_EtkbHhIXBJ2SNbZM0deaFEHzi8";
+
+    const client = new Client({
+
+        brokerURL:
+            "ws://localhost:8080/ws",
+
+        connectHeaders: {
+            Authorization:
+                "Bearer " + token
+        },
+
+        reconnectDelay: 5000,
+
+        onConnect: () => {
+
+            log("CONNECTED");
+
+            heartbeatInterval =
+                setInterval(() => {
+
+                    if (!client.connected) {
+                        return;
+                    }
+
+                    client.publish({
+                        destination:
+                            "/app/heartbeat",
+                        body: ""
+                    });
+
+                    log(
+                        "HEARTBEAT SENT " +
+                        new Date().toLocaleTimeString()
+                    );
+
+                }, 20000);
+        },
+
+        onDisconnect: () => {
+
+            log("DISCONNECTED");
+
+            stopHeartbeat();
+        },
+
+        onStompError: frame => {
+
+            log(
+                "STOMP ERROR: " +
+                frame.headers["message"]
+            );
+
+            log(frame.body);
+        },
+
+        onWebSocketError: error => {
+
+            log("WEBSOCKET ERROR");
+            console.error(error);
+        }
+    });
+
+    let heartbeatInterval = null;
+
+    function stopHeartbeat() {
+
+        if (heartbeatInterval !== null) {
+
+            clearInterval(
+                heartbeatInterval
+            );
+
+            heartbeatInterval = null;
+        }
+    }
+
+    document
+        .getElementById("connect")
+        .addEventListener("click", () => {
+
+            if (!client.active) {
+
+                log("CONNECTING...");
+
+                client.activate();
+            }
+        });
+
+    document
+        .getElementById("disconnect")
+        .addEventListener("click", () => {
+
+            stopHeartbeat();
+
+            client.deactivate();
+
+            log("DISCONNECT REQUESTED");
+        });
+
+    document
+        .getElementById("send")
+        .addEventListener("click", () => {
+
+            if (!client.connected) {
+
+                log("NOT CONNECTED");
+
+                return;
+            }
+
+            client.publish({
+
+                destination:
+                    "/app/signaling",
+
+                body: JSON.stringify({
+
+                    targetUserId:
+                        1000000001,
+
+                    type:
+                        "TEST",
+
+                    payload:
+                        "Hello from sender!"
+                })
+            });
+
+            log("SIGNAL SENT");
+        });
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Avertoo Receiver</title>
+</head>
+<body>
+
+<h2>Receiver</h2>
+
+<button id="connect">Connect</button>
+<button id="disconnect">Disconnect</button>
+
+<pre id="log"></pre>
+
+<script type="module">
+
+    import {Client} from
+            "https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.2.1/+esm";
+
+    const logElement =
+        document.getElementById("log");
+
+    const log = message => {
+        logElement.textContent +=
+            message + "\n";
+    };
+
+    const token =
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMDAwMDAwMDAxIiwiaWF0IjoxNzkwNDQyOTIwLCJleHAiOjE3OTA1MjkzMjB9.GQaJrdInm8Sw9BHaVHtXp0JlH-22togxQQU8qq1PO28";
+
+    const client = new Client({
+
+        brokerURL:
+            "ws://localhost:8080/ws",
+
+        connectHeaders: {
+            Authorization:
+                "Bearer " + token
+        },
+
+        reconnectDelay: 5000,
+
+        onConnect: () => {
+
+            log("CONNECTED");
+
+            client.subscribe(
+                "/user/queue/signaling",
+                message => {
+
+                    log(
+                        "SIGNAL RECEIVED:"
+                    );
+
+                    log(message.body);
+                }
+            );
+
+            heartbeatInterval =
+                setInterval(() => {
+
+                    if (!client.connected) {
+                        return;
+                    }
+
+                    client.publish({
+                        destination:
+                            "/app/heartbeat",
+                        body: ""
+                    });
+
+                    log(
+                        "HEARTBEAT SENT " +
+                        new Date().toLocaleTimeString()
+                    );
+
+                }, 20000);
+        },
+
+        onDisconnect: () => {
+
+            log("DISCONNECTED");
+
+            stopHeartbeat();
+        },
+
+        onStompError: frame => {
+
+            log(
+                "STOMP ERROR: " +
+                frame.headers["message"]
+            );
+
+            log(frame.body);
+        },
+
+        onWebSocketError: error => {
+
+            log("WEBSOCKET ERROR");
+            console.error(error);
+        }
+    });
+
+    let heartbeatInterval = null;
+
+    function stopHeartbeat() {
+
+        if (heartbeatInterval !== null) {
+
+            clearInterval(
+                heartbeatInterval
+            );
+
+            heartbeatInterval = null;
+        }
+    }
+
+    document
+        .getElementById("connect")
+        .addEventListener("click", () => {
+
+            if (!client.active) {
+
+                log("CONNECTING...");
+
+                client.activate();
+            }
+        });
+
+    document
+        .getElementById("disconnect")
+        .addEventListener("click", () => {
+
+            stopHeartbeat();
+
+            client.deactivate();
+
+            log("DISCONNECT REQUESTED");
+        });
+
+</script>
+
+</body>
+</html>
