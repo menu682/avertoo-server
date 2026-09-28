@@ -12,6 +12,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.handler.WebSocketHandlerDecoratorFactory;
 import pp.ua.avertooserver.presence.PresenceService;
+import pp.ua.avertooserver.presence.WebSocketSessionCoordinator;
 import pp.ua.avertooserver.presence.WebSocketSessionHandlerDecorator;
 import pp.ua.avertooserver.presence.WebSocketSessionRegistry;
 import pp.ua.avertooserver.security.WebSocketAuthInterceptor;
@@ -22,9 +23,17 @@ import pp.ua.avertooserver.security.WebSocketAuthInterceptor;
 public class WebSocketConfig
         implements WebSocketMessageBrokerConfigurer {
 
-    private final WebSocketAuthInterceptor webSocketAuthInterceptor;
-    private final WebSocketSessionRegistry sessionRegistry;
-    private final PresenceService presenceService;
+    private final WebSocketAuthInterceptor
+            webSocketAuthInterceptor;
+
+    private final WebSocketSessionRegistry
+            sessionRegistry;
+
+    private final PresenceService
+            presenceService;
+
+    private final WebSocketSessionCoordinator
+            sessionCoordinator;
 
     @Value("${websocket.allowed-origin}")
     private String allowedOrigin;
@@ -77,7 +86,8 @@ public class WebSocketConfig
                         return new WebSocketSessionHandlerDecorator(
                                 handler,
                                 sessionRegistry,
-                                presenceService
+                                presenceService,
+                                sessionCoordinator
                         );
                     }
                 }

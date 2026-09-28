@@ -1,7 +1,7 @@
 package pp.ua.avertooserver.presence;
 
-import org.springframework.web.socket.WebSocketSession;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.WebSocketSession;
 
 import java.time.Instant;
 import java.util.Map;
@@ -36,24 +36,43 @@ public class WebSocketSessionRegistry {
         );
     }
 
-    public void register(
+    public synchronized void replace(
             String sessionId,
             Long userId
     ) {
+        String oldSessionId =
+                userSessions.put(
+                        userId,
+                        sessionId
+                );
+
         sessionUsers.put(
                 sessionId,
                 userId
-        );
-
-        userSessions.put(
-                userId,
-                sessionId
         );
 
         lastHeartbeats.put(
                 sessionId,
                 Instant.now()
         );
+
+        if (oldSessionId == null
+                || oldSessionId.equals(sessionId)) {
+
+            return;
+        }
+
+        WebSocketSession oldSession =
+                sessions.get(oldSessionId);
+
+        if (oldSession != null
+                && oldSession.isOpen()) {
+
+            try {
+                oldSession.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public Long getUserId(
@@ -72,6 +91,15 @@ public class WebSocketSessionRegistry {
             String sessionId
     ) {
         return sessions.get(sessionId);
+    }
+
+    public boolean isCurrentSession(
+            Long userId,
+            String sessionId
+    ) {
+        return sessionId.equals(
+                userSessions.get(userId)
+        );
     }
 
     public void heartbeat(
@@ -93,6 +121,7 @@ public class WebSocketSessionRegistry {
             String sessionId
     ) {
         sessions.remove(sessionId);
+
         lastHeartbeats.remove(sessionId);
 
         Long userId =
@@ -106,8 +135,32 @@ public class WebSocketSessionRegistry {
         }
     }
 
+    public void closeUserSession(
+            Long userId
+    ) {
+        String sessionId =
+                userSessions.get(userId);
+
+        if (sessionId == null) {
+            return;
+        }
+
+        WebSocketSession session =
+                sessions.get(sessionId);
+
+        if (session == null) {
+            return;
+        }
+
+        try {
+            if (session.isOpen()) {
+                session.close();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     public Iterable<String> getSessionIds() {
         return sessions.keySet();
     }
-
 }

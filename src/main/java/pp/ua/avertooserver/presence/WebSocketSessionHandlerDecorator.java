@@ -9,16 +9,28 @@ public class WebSocketSessionHandlerDecorator
         extends WebSocketHandlerDecorator {
 
     private final WebSocketSessionRegistry sessionRegistry;
+
     private final PresenceService presenceService;
+
+    private final WebSocketSessionCoordinator
+            sessionCoordinator;
 
     public WebSocketSessionHandlerDecorator(
             WebSocketHandler delegate,
             WebSocketSessionRegistry sessionRegistry,
-            PresenceService presenceService
+            PresenceService presenceService,
+            WebSocketSessionCoordinator sessionCoordinator
     ) {
         super(delegate);
-        this.sessionRegistry = sessionRegistry;
-        this.presenceService = presenceService;
+
+        this.sessionRegistry =
+                sessionRegistry;
+
+        this.presenceService =
+                presenceService;
+
+        this.sessionCoordinator =
+                sessionCoordinator;
     }
 
     @Override
@@ -26,9 +38,13 @@ public class WebSocketSessionHandlerDecorator
             WebSocketSession session
     ) throws Exception {
 
-        sessionRegistry.registerSession(session);
+        sessionRegistry.registerSession(
+                session
+        );
 
-        super.afterConnectionEstablished(session);
+        super.afterConnectionEstablished(
+                session
+        );
     }
 
     @Override
@@ -37,16 +53,36 @@ public class WebSocketSessionHandlerDecorator
             CloseStatus closeStatus
     ) throws Exception {
 
-        String sessionId = session.getId();
+        String sessionId =
+                session.getId();
 
         Long userId =
-                sessionRegistry.getUserId(sessionId);
+                sessionRegistry.getUserId(
+                        sessionId
+                );
 
-        if (userId != null) {
-            presenceService.offline(userId);
+        if (userId != null
+                && sessionRegistry.isCurrentSession(
+                userId,
+                sessionId
+        )) {
+
+            boolean released =
+                    sessionCoordinator.release(
+                            userId,
+                            sessionId
+                    );
+
+            if (released) {
+                presenceService.offline(
+                        userId
+                );
+            }
         }
 
-        sessionRegistry.unregister(sessionId);
+        sessionRegistry.unregister(
+                sessionId
+        );
 
         super.afterConnectionClosed(
                 session,

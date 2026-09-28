@@ -7,7 +7,9 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.WebSocketSession;
 import pp.ua.avertooserver.presence.PresenceService;
+import pp.ua.avertooserver.presence.WebSocketSessionCoordinator;
 import pp.ua.avertooserver.presence.WebSocketSessionRegistry;
 
 @Component
@@ -19,15 +21,21 @@ public class WebSocketAuthInterceptor
             "userId";
 
     private final JwtService jwtService;
-    private final WebSocketSessionRegistry sessionRegistry;
-    private final PresenceService presenceService;
+
+    private final WebSocketSessionRegistry
+            sessionRegistry;
+
+    private final PresenceService
+            presenceService;
+
+    private final WebSocketSessionCoordinator
+            sessionCoordinator;
 
     @Override
     public Message<?> preSend(
             Message<?> message,
             MessageChannel channel
     ) {
-
         StompHeaderAccessor accessor =
                 StompHeaderAccessor.wrap(message);
 
@@ -42,7 +50,9 @@ public class WebSocketAuthInterceptor
                     );
 
             if (authorization == null
-                    || !authorization.startsWith("Bearer ")) {
+                    || !authorization.startsWith(
+                    "Bearer "
+            )) {
 
                 throw new IllegalArgumentException(
                         "Missing Authorization header"
@@ -53,7 +63,12 @@ public class WebSocketAuthInterceptor
                     authorization.substring(7);
 
             Long userId =
-                    jwtService.extractUserId(token);
+                    jwtService.extractUserId(
+                            token
+                    );
+
+            String sessionId =
+                    accessor.getSessionId();
 
             accessor.getSessionAttributes()
                     .put(
@@ -61,12 +76,19 @@ public class WebSocketAuthInterceptor
                             userId
                     );
 
-            sessionRegistry.register(
-                    accessor.getSessionId(),
+            sessionRegistry.replace(
+                    sessionId,
                     userId
             );
 
-            presenceService.heartbeat(userId);
+            sessionCoordinator.claim(
+                    userId,
+                    sessionId
+            );
+
+            presenceService.heartbeat(
+                    userId
+            );
         }
 
         if (StompCommand.SEND.equals(command)) {
@@ -74,7 +96,9 @@ public class WebSocketAuthInterceptor
             String destination =
                     accessor.getDestination();
 
-            if ("/app/heartbeat".equals(destination)) {
+            if ("/app/heartbeat".equals(
+                    destination
+            )) {
 
                 String sessionId =
                         accessor.getSessionId();
@@ -85,6 +109,31 @@ public class WebSocketAuthInterceptor
                         );
 
                 if (userId != null) {
+
+                    boolean owner =
+                            sessionCoordinator.renew(
+                                    userId,
+                                    sessionId
+                            );
+
+                    if (!owner) {
+
+                        WebSocketSession session =
+                                sessionRegistry.getSession(
+                                        sessionId
+                                );
+
+                        if (session != null
+                                && session.isOpen()) {
+
+                            try {
+                                session.close();
+                            } catch (Exception ignored) {
+                            }
+                        }
+
+                        return message;
+                    }
 
                     sessionRegistry.heartbeat(
                             sessionId
@@ -97,24 +146,39 @@ public class WebSocketAuthInterceptor
             }
         }
 
-        if (StompCommand.DISCONNECT.equals(command)) {
-
-            String sessionId =
-                    accessor.getSessionId();
-
-            Long userId =
-                    sessionRegistry.getUserId(
-                            sessionId
-                    );
-
-            if (userId != null) {
-                presenceService.offline(userId);
-            }
-
-            sessionRegistry.unregister(
-                    sessionId
-            );
-        }
+//        if (StompCommand.DISCONNECT.equals(command)) {
+//
+//            String sessionId =
+//                    accessor.getSessionId();
+//
+//            Long userId =
+//                    sessionRegistry.getUserId(
+//                            sessionId
+//                    );
+//
+//            if (userId != null
+//                    && sessionRegistry.isCurrentSession(
+//                    userId,
+//                    sessionId
+//            )) {
+//
+//                boolean released =
+//                        sessionCoordinator.release(
+//                                userId,
+//                                sessionId
+//                        );
+//
+//                if (released) {
+//                    presenceService.offline(
+//                            userId
+//                    );
+//                }
+//            }
+//
+//            sessionRegistry.unregister(
+//                    sessionId
+//            );
+//        }
 
         return message;
     }
