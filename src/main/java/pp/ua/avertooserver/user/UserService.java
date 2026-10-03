@@ -1,6 +1,5 @@
 package pp.ua.avertooserver.user;
 
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -37,8 +36,7 @@ public class UserService {
         return userRepository.save(user);
     }
 
-
-    public User getUserByUserId(Long userId){
+    public User getUserByUserId(Long userId) {
         return userRepository.findByUserId(userId)
                 .orElseThrow(
                         () -> new UserNotFoundException(userId)
@@ -131,5 +129,4 @@ public class UserService {
 
         refreshTokenRepository.deleteByUser(user);
     }
-
 }

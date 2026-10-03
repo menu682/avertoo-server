@@ -1,10 +1,13 @@
 package pp.ua.avertooserver.user;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.AccessLevel;
 import org.hibernate.annotations.Generated;
 
 import java.time.OffsetDateTime;
@@ -40,5 +43,4 @@ public class User {
     public void changePassword(String passwordHash) {
         this.passwordHash = passwordHash;
     }
-
 }

@@ -43,7 +43,6 @@ public class RefreshTokenService {
             );
 
             return HexFormat.of().formatHex(hash);
-
         } catch (NoSuchAlgorithmException exception) {
 
             throw new IllegalStateException(

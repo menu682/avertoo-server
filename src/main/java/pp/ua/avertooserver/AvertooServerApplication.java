@@ -9,5 +9,4 @@ public class AvertooServerApplication {
     public static void main(String[] args) {
         SpringApplication.run(AvertooServerApplication.class, args);
     }
-
 }
