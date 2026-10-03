@@ -6,6 +6,6 @@ CREATE SEQUENCE user_id_seq
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     user_id BIGINT NOT NULL UNIQUE DEFAULT nextval('user_id_seq'),
-   password_hash VARCHAR(255) NOT NULL,
-   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
