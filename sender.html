@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Avertoo Sender</title>
+    <title>Avertoo WebRTC Sender</title>
 </head>
 <body>
 
@@ -10,7 +10,8 @@
 
 <button id="connect">Connect</button>
 <button id="disconnect">Disconnect</button>
-<button id="send">Send signal</button>
+<button id="start">Start WebRTC</button>
+<button id="send">Send message</button>
 
 <pre id="log"></pre>
 
@@ -19,32 +20,54 @@
     import {Client} from
             "https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.2.1/+esm";
 
+
     const logElement =
         document.getElementById("log");
 
+
     const log = message => {
+
         logElement.textContent +=
             message + "\n";
     };
 
+
     const token =
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMDAwMDAwMDAwIiwiaWF0IjoxNzkwNTk2MTEyLCJleHAiOjE3OTA2ODI1MTJ9.LvlQt5VApPo-AXf3a7S38x8F_i5Gi-ElBQTj80WHuGg";
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMDAwMDAwMDAwIiwiaWF0IjoxNzkxMDE1MDE2LCJleHAiOjE3OTExMDE0MTZ9.QYztqYWeNXP9Gc_ysRNHrDVnURT684w-hvR43acHry8";
+
+
+    const targetUserId =
+        1000000001;
+
 
     const client = new Client({
 
-        brokerURL:
-            "ws://localhost:8080/ws",
+        brokerURL: "wss://scrubbed-immersion-reuse.ngrok-free.dev/ws",
 
         connectHeaders: {
+
             Authorization:
                 "Bearer " + token
         },
 
         reconnectDelay: 5000,
 
+
         onConnect: () => {
 
             log("CONNECTED");
+
+
+            client.subscribe(
+                "/user/queue/signaling",
+                message => {
+
+                    handleSignalingMessage(
+                        message
+                    );
+                }
+            );
+
 
             heartbeatInterval =
                 setInterval(() => {
@@ -53,19 +76,25 @@
                         return;
                     }
 
+
                     client.publish({
+
                         destination:
                             "/app/heartbeat",
+
                         body: ""
                     });
 
+
                     log(
                         "HEARTBEAT SENT " +
-                        new Date().toLocaleTimeString()
+                        new Date()
+                            .toLocaleTimeString()
                     );
 
                 }, 20000);
         },
+
 
         onDisconnect: () => {
 
@@ -73,6 +102,7 @@
 
             stopHeartbeat();
         },
+
 
         onStompError: frame => {
 
@@ -84,14 +114,35 @@
             log(frame.body);
         },
 
+
         onWebSocketError: error => {
 
             log("WEBSOCKET ERROR");
+
             console.error(error);
         }
     });
 
+
     let heartbeatInterval = null;
+
+
+    let peerConnection = null;
+
+    let dataChannel = null;
+
+
+    const rtcConfiguration = {
+
+        iceServers: [
+
+            {
+                urls:
+                    "stun:stun.l.google.com:19302"
+            }
+        ]
+    };
+
 
     function stopHeartbeat() {
 
@@ -105,60 +156,391 @@
         }
     }
 
-    document
-        .getElementById("connect")
-        .addEventListener("click", () => {
 
-            if (!client.active) {
+    function sendSignal(
+        type,
+        payload
+    ) {
 
-                log("CONNECTING...");
+        client.publish({
 
-                client.activate();
-            }
+            destination:
+                "/app/signaling",
+
+            body: JSON.stringify({
+
+                targetUserId:
+                targetUserId,
+
+                type:
+                type,
+
+                payload:
+                payload
+            })
         });
 
-    document
-        .getElementById("disconnect")
-        .addEventListener("click", () => {
 
-            stopHeartbeat();
+        log(
+            "SIGNAL SENT: " +
+            type
+        );
+    }
 
-            client.deactivate();
 
-            log("DISCONNECT REQUESTED");
-        });
+    async function startWebRTC() {
 
-    document
-        .getElementById("send")
-        .addEventListener("click", () => {
+        if (!client.connected) {
 
-            if (!client.connected) {
+            log(
+                "WEBSOCKET NOT CONNECTED"
+            );
 
-                log("NOT CONNECTED");
+            return;
+        }
+
+
+        if (peerConnection) {
+
+            log(
+                "PEER CONNECTION ALREADY EXISTS"
+            );
+
+            return;
+        }
+
+
+        log(
+            "CREATING PEER CONNECTION"
+        );
+
+
+        peerConnection =
+            new RTCPeerConnection(
+                rtcConfiguration
+            );
+
+
+        peerConnection.onicecandidate =
+            event => {
+
+                if (!event.candidate) {
+                    return;
+                }
+
+
+                sendSignal(
+                    "ICE_CANDIDATE",
+
+                    JSON.stringify(
+                        event.candidate
+                    )
+                );
+            };
+
+
+        peerConnection.onconnectionstatechange =
+            () => {
+
+                log(
+                    "CONNECTION STATE: " +
+                    peerConnection.connectionState
+                );
+
+
+                if (
+                    peerConnection.connectionState ===
+                    "connected"
+                ) {
+
+                    log(
+                        "WEBRTC CONNECTED"
+                    );
+                }
+            };
+
+
+        peerConnection.oniceconnectionstatechange =
+            () => {
+
+                log(
+                    "ICE STATE: " +
+                    peerConnection.iceConnectionState
+                );
+            };
+
+
+        dataChannel =
+            peerConnection.createDataChannel(
+                "messages"
+            );
+
+
+        dataChannel.onopen =
+            () => {
+
+                log(
+                    "DATA CHANNEL OPEN"
+                );
+            };
+
+
+        dataChannel.onclose =
+            () => {
+
+                log(
+                    "DATA CHANNEL CLOSED"
+                );
+            };
+
+
+        dataChannel.onerror =
+            error => {
+
+                log(
+                    "DATA CHANNEL ERROR"
+                );
+
+                console.error(error);
+            };
+
+
+        dataChannel.onmessage =
+            event => {
+
+                log(
+                    "MESSAGE RECEIVED: " +
+                    event.data
+                );
+            };
+
+
+        const offer =
+            await peerConnection.createOffer();
+
+
+        await peerConnection.setLocalDescription(
+            offer
+        );
+
+
+        sendSignal(
+            "OFFER",
+
+            JSON.stringify(
+                peerConnection.localDescription
+            )
+        );
+
+
+        log(
+            "OFFER CREATED"
+        );
+    }
+
+
+    async function handleSignalingMessage(
+        message
+    ) {
+
+        const signal =
+            JSON.parse(message.body);
+
+
+        log(
+            "SIGNAL RECEIVED: " +
+            signal.type
+        );
+
+
+        if (
+            signal.type ===
+            "ANSWER"
+        ) {
+
+            if (!peerConnection) {
+
+                log(
+                    "NO PEER CONNECTION"
+                );
 
                 return;
             }
 
-            client.publish({
 
-                destination:
-                    "/app/signaling",
+            const answer =
+                JSON.parse(
+                    signal.payload
+                );
 
-                body: JSON.stringify({
 
-                    targetUserId:
-                        1000000001,
+            await peerConnection.setRemoteDescription(
+                answer
+            );
 
-                    type:
-                        "TEST",
 
-                    payload:
-                        "Hello from sender!"
-                })
-            });
+            log(
+                "ANSWER APPLIED"
+            );
 
-            log("SIGNAL SENT");
-        });
+            return;
+        }
+
+
+        if (
+            signal.type ===
+            "ICE_CANDIDATE"
+        ) {
+
+            if (!peerConnection) {
+
+                log(
+                    "NO PEER CONNECTION"
+                );
+
+                return;
+            }
+
+
+            const candidate =
+                JSON.parse(
+                    signal.payload
+                );
+
+
+            try {
+
+                await peerConnection.addIceCandidate(
+                    candidate
+                );
+
+
+                log(
+                    "ICE CANDIDATE APPLIED"
+                );
+
+            } catch (error) {
+
+                log(
+                    "ICE CANDIDATE ERROR"
+                );
+
+                console.error(error);
+            }
+        }
+    }
+
+
+    document
+        .getElementById("connect")
+        .addEventListener(
+            "click",
+            () => {
+
+                if (!client.active) {
+
+                    log(
+                        "CONNECTING..."
+                    );
+
+                    client.activate();
+                }
+            }
+        );
+
+
+    document
+        .getElementById("disconnect")
+        .addEventListener(
+            "click",
+            () => {
+
+                stopHeartbeat();
+
+
+                if (dataChannel) {
+
+                    dataChannel.close();
+
+                    dataChannel = null;
+                }
+
+
+                if (peerConnection) {
+
+                    peerConnection.close();
+
+                    peerConnection = null;
+                }
+
+
+                client.deactivate();
+
+
+                log(
+                    "DISCONNECT REQUESTED"
+                );
+            }
+        );
+
+
+    document
+        .getElementById("start")
+        .addEventListener(
+            "click",
+            async () => {
+
+                try {
+
+                    await startWebRTC();
+
+                } catch (error) {
+
+                    log(
+                        "WEBRTC START ERROR"
+                    );
+
+                    console.error(error);
+                }
+            }
+        );
+
+
+    document
+        .getElementById("send")
+        .addEventListener(
+            "click",
+            () => {
+
+                if (
+                    !dataChannel ||
+                    dataChannel.readyState !==
+                    "open"
+                ) {
+
+                    log(
+                        "DATA CHANNEL NOT OPEN"
+                    );
+
+                    return;
+                }
+
+
+                const message =
+                    "Hello from A!";
+
+
+                dataChannel.send(
+                    message
+                );
+
+
+                log(
+                    "MESSAGE SENT: " +
+                    message
+                );
+            }
+        );
 
 </script>
 
