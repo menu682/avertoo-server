@@ -4,43 +4,83 @@ services:
     image: postgres:18
     container_name: avertoo-postgres
     restart: unless-stopped
+
     environment:
       POSTGRES_DB: avertoo
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+
     ports:
       - "5432:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql
+
+    networks:
+      - avertoo
 
 
   redis:
     image: redis:8
     container_name: avertoo-redis
     restart: unless-stopped
+
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+
     ports:
       - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+    networks:
+      - avertoo
 
 
   avertoo-server:
     build:
       context: .
       dockerfile: Dockerfile
+
     container_name: avertoo-server
     restart: unless-stopped
+
     depends_on:
       - postgres
+      - redis
+
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: avertoo
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD: ${DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
+
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+      JWT_SECRET: ${JWT_SECRET}
+
+      WEBSOCKET_HEARTBEAT_TIMEOUT_MS: ${WEBSOCKET_HEARTBEAT_TIMEOUT_MS}
+      WEBSOCKET_HEARTBEAT_CHECK_INTERVAL_MS: ${WEBSOCKET_HEARTBEAT_CHECK_INTERVAL_MS}
+      WEBSOCKET_SERVER_ID: ${WEBSOCKET_SERVER_ID}
+      WEBSOCKET_ALLOWED_ORIGIN: ${WEBSOCKET_ALLOWED_ORIGIN}
+
     ports:
       - "8080:8080"
 
+    networks:
+      - avertoo
+
+
+networks:
+  avertoo:
+
+
 volumes:
   postgres_data:
+  redis_data:
