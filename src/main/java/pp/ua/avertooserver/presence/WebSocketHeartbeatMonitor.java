@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
+import pp.ua.avertooserver.privatechat.OpenedChatCoordinator;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -15,6 +16,7 @@ import java.time.Instant;
 public class WebSocketHeartbeatMonitor {
 
     private final WebSocketSessionRegistry sessionRegistry;
+    private final OpenedChatCoordinator openedChatCoordinator;
 
     @Value("${websocket.heartbeat-timeout-ms}")
     private long heartbeatTimeoutMs;
@@ -23,6 +25,7 @@ public class WebSocketHeartbeatMonitor {
             fixedRateString =
                     "${websocket.heartbeat-check-interval-ms}"
     )
+
     public void checkHeartbeats() {
 
         Instant now = Instant.now();
@@ -46,6 +49,17 @@ public class WebSocketHeartbeatMonitor {
                     ).toMillis();
 
             if (elapsed <= heartbeatTimeoutMs) {
+
+                Long userId =
+                        sessionRegistry.getUserId(sessionId);
+
+                if (userId != null) {
+                    openedChatCoordinator.renew(
+                            userId,
+                            sessionId
+                    );
+                }
+
                 continue;
             }
 

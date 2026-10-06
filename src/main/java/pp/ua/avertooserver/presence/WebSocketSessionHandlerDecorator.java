@@ -2,8 +2,10 @@ package pp.ua.avertooserver.presence;
 
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
+import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
+import pp.ua.avertooserver.privatechat.OpenedChatCoordinator;
 
 public class WebSocketSessionHandlerDecorator
         extends WebSocketHandlerDecorator {
@@ -15,11 +17,15 @@ public class WebSocketSessionHandlerDecorator
     private final WebSocketSessionCoordinator
             sessionCoordinator;
 
+    private final OpenedChatCoordinator
+            openedChatCoordinator;
+
     public WebSocketSessionHandlerDecorator(
             WebSocketHandler delegate,
             WebSocketSessionRegistry sessionRegistry,
             PresenceService presenceService,
-            WebSocketSessionCoordinator sessionCoordinator
+            WebSocketSessionCoordinator sessionCoordinator,
+            OpenedChatCoordinator openedChatCoordinator
     ) {
         super(delegate);
 
@@ -31,6 +37,9 @@ public class WebSocketSessionHandlerDecorator
 
         this.sessionCoordinator =
                 sessionCoordinator;
+
+        this.openedChatCoordinator =
+                openedChatCoordinator;
     }
 
     @Override
@@ -44,6 +53,22 @@ public class WebSocketSessionHandlerDecorator
 
         super.afterConnectionEstablished(
                 session
+        );
+    }
+
+    @Override
+    public void handleMessage(
+            WebSocketSession session,
+            WebSocketMessage<?> message
+    ) throws Exception {
+
+        sessionRegistry.heartbeat(
+                session.getId()
+        );
+
+        super.handleMessage(
+                session,
+                message
         );
     }
 
@@ -66,6 +91,10 @@ public class WebSocketSessionHandlerDecorator
                 userId,
                 sessionId
         )) {
+
+            openedChatCoordinator.closeAll(
+                    userId
+            );
 
             boolean released =
                     sessionCoordinator.release(
