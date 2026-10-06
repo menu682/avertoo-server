@@ -15,6 +15,7 @@ import pp.ua.avertooserver.presence.PresenceService;
 import pp.ua.avertooserver.presence.WebSocketSessionCoordinator;
 import pp.ua.avertooserver.presence.WebSocketSessionHandlerDecorator;
 import pp.ua.avertooserver.presence.WebSocketSessionRegistry;
+import pp.ua.avertooserver.privatechat.OpenedChatCoordinator;
 import pp.ua.avertooserver.security.WebSocketAuthInterceptor;
 
 @Configuration
@@ -34,6 +35,9 @@ public class WebSocketConfig
 
     private final WebSocketSessionCoordinator
             sessionCoordinator;
+
+    private final OpenedChatCoordinator
+            openedChatCoordinator;
 
     @Value("${websocket.allowed-origin}")
     private String allowedOrigin;
@@ -87,7 +91,8 @@ public class WebSocketConfig
                                 handler,
                                 sessionRegistry,
                                 presenceService,
-                                sessionCoordinator
+                                sessionCoordinator,
+                                openedChatCoordinator
                         );
                     }
                 }

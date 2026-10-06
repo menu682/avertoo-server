@@ -70,6 +70,36 @@ public class PrivateChatService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public Long getOtherUserId(
+            UUID chatId,
+            Long userId
+    ) {
+        PrivateChat privateChat =
+                privateChatRepository.findById(chatId)
+                        .orElseThrow(
+                                () -> new PrivateChatNotFoundException(chatId)
+                        );
+
+        Long user1UserId =
+                privateChat.getUser1().getUserId();
+
+        Long user2UserId =
+                privateChat.getUser2().getUserId();
+
+        if (!user1UserId.equals(userId)
+                && !user2UserId.equals(userId)) {
+
+            throw new PrivateChatAccessDeniedException(
+                    chatId
+            );
+        }
+
+        return user1UserId.equals(userId)
+                ? user2UserId
+                : user1UserId;
+    }
+
     @Transactional
     public Long deleteChat(
             UUID chatId,
