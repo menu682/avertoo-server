@@ -4,14 +4,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import pp.ua.avertooserver.common.exception.CaptchaVerificationException;
-import pp.ua.avertooserver.common.exception.InvalidCredentialsException;
-import pp.ua.avertooserver.common.exception.UserNotFoundException;
+import pp.ua.avertooserver.common.exception.*;
 import pp.ua.avertooserver.security.JwtService;
 import pp.ua.avertooserver.security.RefreshToken;
 import pp.ua.avertooserver.security.RefreshTokenRepository;
 import pp.ua.avertooserver.security.RefreshTokenService;
 import pp.ua.avertooserver.security.captcha.CaptchaService;
+import pp.ua.avertooserver.security.ratelimit.LoginRateLimiter;
+import pp.ua.avertooserver.security.ratelimit.RegistrationRateLimiter;
 import pp.ua.avertooserver.user.dto.ChangePasswordRequest;
 import pp.ua.avertooserver.user.dto.CreateUserRequest;
 import pp.ua.avertooserver.user.dto.LoginRequest;
@@ -27,20 +27,36 @@ public class UserService {
     private final RefreshTokenService refreshTokenService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final CaptchaService captchaService;
+    private final RegistrationRateLimiter registrationRateLimiter;
+    private final LoginRateLimiter loginRateLimiter;
 
     /**
-     * Creates a new user after successful CAPTCHA verification.
+     * Creates a new user after successful CAPTCHA verification
+     * and registration rate-limit validation.
      *
-     * <p>The CAPTCHA token must be verified by the server before
-     * any user data is persisted.</p>
+     * <p>The CAPTCHA token is verified first. Only after successful
+     * CAPTCHA verification is the registration rate limit checked.</p>
+     *
+     * @param request registration data
+     * @param clientIp IP address of the client making the request
+     * @return newly created user
+     * @throws CaptchaVerificationException when CAPTCHA verification fails
      */
-    public User createUser(CreateUserRequest request) {
+    public User createUser(
+            CreateUserRequest request,
+            String clientIp
+    ) {
 
         if (!captchaService.verify(request.captchaToken())) {
             throw new CaptchaVerificationException();
         }
 
-        String passwordHash = passwordEncoder.encode(request.password());
+        if (!registrationRateLimiter.isAllowed(clientIp)) {
+            throw new RegistrationRateLimitExceededException();
+        }
+
+        String passwordHash =
+                passwordEncoder.encode(request.password());
 
         User user = User.builder()
                 .passwordHash(passwordHash)
@@ -49,23 +65,51 @@ public class UserService {
         return userRepository.save(user);
     }
 
+    /**
+     * Finds a user by their public user ID.
+     *
+     * @param userId user identifier
+     * @return found user
+     * @throws UserNotFoundException when the user does not exist
+     */
     public User getUserByUserId(Long userId) {
+
         return userRepository.findByUserId(userId)
                 .orElseThrow(
                         () -> new UserNotFoundException(userId)
                 );
     }
 
+    /**
+     * Authenticates a user and creates a new access/refresh token pair.
+     *
+     * <p>The login rate limit is checked before password verification.
+     * Failed password verification attempts are recorded in Redis.
+     * Successful authentication does not increase the counter.</p>
+     *
+     * @param request login credentials
+     * @return access and refresh tokens
+     * @throws InvalidCredentialsException when credentials are invalid
+     * @throws LoginRateLimitExceededException when the login limit is exceeded
+     */
     @Transactional
     public LoginResponse login(LoginRequest request) {
 
         User user = userRepository.findByUserId(request.userId())
                 .orElseThrow(InvalidCredentialsException::new);
 
+        if (!loginRateLimiter.isAllowed(user.getUserId())) {
+            throw new LoginRateLimitExceededException();
+        }
+
         if (!passwordEncoder.matches(
                 request.password(),
                 user.getPasswordHash()
         )) {
+            loginRateLimiter.recordFailedAttempt(
+                    user.getUserId()
+            );
+
             throw new InvalidCredentialsException();
         }
 
@@ -73,7 +117,8 @@ public class UserService {
                 user.getUserId()
         );
 
-        String refreshToken = refreshTokenService.createRefreshToken(user);
+        String refreshToken =
+                refreshTokenService.createRefreshToken(user);
 
         return new LoginResponse(
                 accessToken,
@@ -81,6 +126,12 @@ public class UserService {
         );
     }
 
+    /**
+     * Validates a refresh token and creates a new token pair.
+     *
+     * @param refreshToken current refresh token
+     * @return new access and refresh tokens
+     */
     @Transactional
     public LoginResponse refresh(String refreshToken) {
 
@@ -101,6 +152,15 @@ public class UserService {
         );
     }
 
+    /**
+     * Changes the user's password after verifying the current password.
+     *
+     * <p>A new token pair is issued after a successful password change.</p>
+     *
+     * @param userId user identifier
+     * @param request password change data
+     * @return new access and refresh tokens
+     */
     @Transactional
     public LoginResponse changePassword(
             Long userId,
@@ -134,11 +194,19 @@ public class UserService {
         );
     }
 
+    /**
+     * Invalidates all refresh tokens belonging to the user.
+     *
+     * @param userId user identifier
+     * @throws UserNotFoundException when the user does not exist
+     */
     @Transactional
     public void logout(Long userId) {
 
         User user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
+                .orElseThrow(
+                        () -> new UserNotFoundException(userId)
+                );
 
         refreshTokenRepository.deleteByUser(user);
     }

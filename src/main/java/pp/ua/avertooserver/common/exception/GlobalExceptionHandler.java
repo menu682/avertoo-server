@@ -113,6 +113,48 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles registration requests that exceed the configured rate limit.
+     *
+     * @param exception rate-limit exception
+     * @return HTTP 429 response
+     */
+    @ExceptionHandler(RegistrationRateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRegistrationRateLimitExceeded(
+            RegistrationRateLimitExceededException exception
+    ) {
+
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(response);
+    }
+
+    /**
+     * Handles login requests that exceed the configured rate limit.
+     *
+     * @param exception rate-limit exception
+     * @return HTTP 429 response
+     */
+    @ExceptionHandler(LoginRateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleLoginRateLimitExceeded(
+            LoginRateLimitExceededException exception
+    ) {
+
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                exception.getMessage()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(response);
+    }
+
+    /**
      * Extracts the most useful validation message from Spring's
      * validation errors.
      *
