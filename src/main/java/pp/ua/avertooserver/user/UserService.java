@@ -4,12 +4,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pp.ua.avertooserver.common.exception.CaptchaVerificationException;
 import pp.ua.avertooserver.common.exception.InvalidCredentialsException;
 import pp.ua.avertooserver.common.exception.UserNotFoundException;
 import pp.ua.avertooserver.security.JwtService;
 import pp.ua.avertooserver.security.RefreshToken;
 import pp.ua.avertooserver.security.RefreshTokenRepository;
 import pp.ua.avertooserver.security.RefreshTokenService;
+import pp.ua.avertooserver.security.captcha.CaptchaService;
 import pp.ua.avertooserver.user.dto.ChangePasswordRequest;
 import pp.ua.avertooserver.user.dto.CreateUserRequest;
 import pp.ua.avertooserver.user.dto.LoginRequest;
@@ -24,8 +26,19 @@ public class UserService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final CaptchaService captchaService;
 
+    /**
+     * Creates a new user after successful CAPTCHA verification.
+     *
+     * <p>The CAPTCHA token must be verified by the server before
+     * any user data is persisted.</p>
+     */
     public User createUser(CreateUserRequest request) {
+
+        if (!captchaService.verify(request.captchaToken())) {
+            throw new CaptchaVerificationException();
+        }
 
         String passwordHash = passwordEncoder.encode(request.password());
 
