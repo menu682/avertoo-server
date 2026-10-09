@@ -39,4 +39,15 @@ public interface PrivateChatRepository extends JpaRepository<PrivateChat, UUID> 
     List<PrivateChat> findActiveChatsByUserId(
             @Param("userId") Long userId
     );
+
+    @Query("""
+            SELECT pc
+            FROM PrivateChat pc
+            WHERE pc.user1.userId = :userId
+            OR pc.user2.userId = :userId
+            ORDER BY pc.createdAt DESC
+            """)
+    List<PrivateChat> findChatsByUserId(
+            @Param("userId") Long userId
+    );
 }

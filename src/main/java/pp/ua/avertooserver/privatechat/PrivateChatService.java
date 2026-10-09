@@ -8,6 +8,7 @@ import pp.ua.avertooserver.common.exception.PrivateChatNotFoundException;
 import pp.ua.avertooserver.common.exception.UserNotFoundException;
 import pp.ua.avertooserver.privatechat.dto.PrivateChatCreateResponse;
 import pp.ua.avertooserver.privatechat.dto.PrivateChatCreateResult;
+import pp.ua.avertooserver.privatechat.dto.PrivateChatListItemResponse;
 import pp.ua.avertooserver.privatechat.dto.PrivateChatResponse;
 import pp.ua.avertooserver.user.User;
 import pp.ua.avertooserver.user.UserRepository;
@@ -67,6 +68,38 @@ public class PrivateChatService {
                         privateChat.getUser1().getUserId(),
                         privateChat.getUser2().getUserId()
                 ))
+                .toList();
+    }
+
+    /**
+     * Returns all chats of the user regardless of their status.
+     *
+     * <p>The client uses this list to synchronize its local chat
+     * storage when the chat list screen is opened. The returned
+     * list contains both PENDING and ACTIVE chats ordered by
+     * creation time (newest first).</p>
+     */
+    @Transactional(readOnly = true)
+    public List<PrivateChatListItemResponse> getChatsByUserId(
+            Long userId
+    ) {
+        return privateChatRepository
+                .findChatsByUserId(userId)
+                .stream()
+                .map(privateChat -> {
+
+                    Long otherUserId =
+                            privateChat.getUser1().getUserId().equals(userId)
+                                    ? privateChat.getUser2().getUserId()
+                                    : privateChat.getUser1().getUserId();
+
+                    return new PrivateChatListItemResponse(
+                            privateChat.getId(),
+                            otherUserId,
+                            privateChat.getStatus(),
+                            privateChat.getCreatedAt()
+                    );
+                })
                 .toList();
     }
 
