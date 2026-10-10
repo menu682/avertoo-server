@@ -6,6 +6,7 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 import pp.ua.avertooserver.presence.WebSocketSessionRegistry;
+import pp.ua.avertooserver.privatechat.PrivateChatRepository;
 
 import java.util.Map;
 
@@ -15,6 +16,7 @@ public class SignalingController {
 
     private final SimpMessagingTemplate messagingTemplate;
     private final WebSocketSessionRegistry sessionRegistry;
+    private final PrivateChatRepository privateChatRepository;
 
     @MessageMapping("/signaling")
     public void signaling(
@@ -25,37 +27,67 @@ public class SignalingController {
         Map<String, Object> sessionAttributes =
                 headerAccessor.getSessionAttributes();
 
+        if (sessionAttributes == null) {
+            return;
+        }
+
         Long senderUserId =
                 (Long) sessionAttributes.get("userId");
 
         Long targetUserId =
                 message.targetUserId();
 
-        String targetSessionId =
-                sessionRegistry.getSessionId(targetUserId);
-
-        if (targetSessionId == null) {
+        if (senderUserId == null
+                || targetUserId == null
+                || senderUserId.equals(targetUserId)) {
             return;
         }
 
-        SignalingResponse response =
-                new SignalingResponse(
-                        senderUserId,
-                        message.type(),
-                        message.payload()
-                );
+        /*
+         * Access check: signaling is allowed only between users
+         * that share a private chat. Without it any authenticated
+         * user could spam OFFER/ANSWER/ICE frames to any userId
+         * and disturb its WebRTC negotiations.
+         *
+         * Any status (PENDING or ACTIVE) counts — the key/answer
+         * exchange must already work while the chat request is
+         * still pending.
+         */
+        if (privateChatRepository
+                .findByUserIds(senderUserId, targetUserId)
+                .isEmpty()) {
+            return;
+        }
 
-        SimpMessageHeaderAccessor targetHeaders =
-                SimpMessageHeaderAccessor.create();
+        /*
+         * Deliver to every live session of the target — its
+         * foreground session and all of its background (silent)
+         * ones. Each of them owns an independent WebRTC
+         * negotiation, and only the one holding the matching chat
+         * will act on the frame; the others ignore it.
+         */
+        for (String targetSessionId :
+                sessionRegistry.getSessionIds(targetUserId)) {
 
-        targetHeaders.setSessionId(targetSessionId);
-        targetHeaders.setLeaveMutable(true);
+            SignalingResponse response =
+                    new SignalingResponse(
+                            senderUserId,
+                            message.type(),
+                            message.payload()
+                    );
 
-        messagingTemplate.convertAndSendToUser(
-                targetSessionId,
-                "/queue/signaling",
-                response,
-                targetHeaders.getMessageHeaders()
-        );
+            SimpMessageHeaderAccessor targetHeaders =
+                    SimpMessageHeaderAccessor.create();
+
+            targetHeaders.setSessionId(targetSessionId);
+            targetHeaders.setLeaveMutable(true);
+
+            messagingTemplate.convertAndSendToUser(
+                    targetSessionId,
+                    "/queue/signaling",
+                    response,
+                    targetHeaders.getMessageHeaders()
+            );
+        }
     }
 }

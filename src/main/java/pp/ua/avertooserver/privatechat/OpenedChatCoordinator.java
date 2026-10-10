@@ -6,6 +6,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -55,6 +56,28 @@ public class OpenedChatCoordinator {
      */
     private static final String CURRENT_CHAT_KEY_PREFIX =
             "websocket:opened-chat:";
+
+    /**
+     * Redis SET of chat ids currently opened by the SILENT
+     * (background) sessions of a user.
+     *
+     * Silent sessions are independent from the single foreground
+     * "opened chat" slot: a user may keep any number of silent chats
+     * open at the same time without disturbing the foreground one.
+     */
+    private static final String SILENT_SET_KEY_PREFIX =
+            "websocket:silent-chats:";
+
+    /**
+     * Redis key holding the WebSocket owner of a user within one
+     * SILENT (background) opened chat.
+     *
+     * Kept apart from {@link #CHAT_KEY_PREFIX} so a silent session
+     * never overwrites the foreground ownership record of the same
+     * chat, and vice versa.
+     */
+    private static final String SILENT_CHAT_KEY_PREFIX =
+            "websocket:silent-chat:";
 
     /**
      * TTL of opened-chat information.
@@ -123,20 +146,22 @@ public class OpenedChatCoordinator {
 
         /*
          * Check whether the other participant has already
-         * opened this chat.
+         * opened this chat — in EITHER lane.
+         *
+         * A foreground open must rendezvous with a peer that
+         * waits in a SILENT session (the normal "wake the
+         * offline user" case) and vice versa, so the lookup
+         * covers both lanes via getOwnerAnywhere.
          *
          * This check happens before registering the current
          * user, so "otherOwner != null" means that the other
          * user was already there.
          */
         String otherOwner =
-                redisTemplate.opsForValue()
-                        .get(
-                                buildChatKey(
-                                        chatId,
-                                        otherUserId
-                                )
-                        );
+                getOwnerAnywhere(
+                        chatId,
+                        otherUserId
+                );
 
         String owner =
                 serverId + ":" + sessionId;
@@ -226,6 +251,132 @@ public class OpenedChatCoordinator {
         }
 
         redisTemplate.delete(currentChatKey);
+    }
+
+    /**
+     * Registers a chat as opened by a SILENT (background) session.
+     *
+     * <p>Silent sessions are unlimited and completely independent of
+     * the single foreground "opened chat" slot: nothing is read from
+     * or written to {@code websocket:opened-chat:{userId}}, so an
+     * already-open foreground chat is never disturbed.</p>
+     *
+     * <p>The other participant is looked up across BOTH lanes, so a
+     * silent session can rendezvous with a peer that has the chat
+     * open in the foreground (the normal "wake the offline user"
+     * case) and vice versa.</p>
+     *
+     * @return true if the other participant was already present,
+     *         making the current session the WebRTC initiator.
+     */
+    public boolean openSilent(
+            UUID chatId,
+            Long userId,
+            Long otherUserId,
+            String sessionId
+    ) {
+        boolean otherPresent =
+                getOwnerAnywhere(chatId, otherUserId) != null;
+
+        String owner =
+                serverId + ":" + sessionId;
+
+        redisTemplate.opsForValue().set(
+                buildSilentChatKey(chatId, userId),
+                owner,
+                CHAT_TTL
+        );
+
+        /*
+         * The per-user set is what makes silent sessions unlimited:
+         * one entry per chat instead of a single overwritten slot.
+         */
+        redisTemplate.opsForSet().add(
+                buildSilentSetKey(userId),
+                chatId.toString()
+        );
+
+        redisTemplate.expire(
+                buildSilentSetKey(userId),
+                CHAT_TTL
+        );
+
+        return otherPresent;
+    }
+
+    /**
+     * Removes the silent opened-chat state of a user for one chat.
+     *
+     * <p>Leaves the foreground "opened chat" slot untouched.</p>
+     *
+     * <p>Only clears the record when this session still owns it,
+     * so a concurrent silent session of the same user (e.g. a
+     * second background wake for another message) survives the
+     * teardown of the first one. Matches the ownership guard in
+     * {@link #closeSilentForSession(Long, String)}.</p>
+     */
+    public void closeSilent(
+            UUID chatId,
+            Long userId,
+            String sessionId
+    ) {
+        String expectedOwner =
+                serverId + ":" + sessionId;
+
+        String currentOwner =
+                redisTemplate.opsForValue().get(
+                        buildSilentChatKey(chatId, userId)
+                );
+
+        if (!expectedOwner.equals(currentOwner)) {
+            return;
+        }
+
+        redisTemplate.delete(
+                buildSilentChatKey(chatId, userId)
+        );
+
+        redisTemplate.opsForSet().remove(
+                buildSilentSetKey(userId),
+                chatId.toString()
+        );
+    }
+
+    /**
+     * Returns the WebSocket owner of a chat for a user, looking at
+     * the foreground record first and the silent one second.
+     *
+     * <p>Used for peer-ready resolution: either lane is a valid
+     * rendezvous target.</p>
+     */
+    public String getOwnerAnywhere(
+            UUID chatId,
+            Long userId
+    ) {
+        String owner =
+                redisTemplate.opsForValue().get(
+                        buildChatKey(chatId, userId)
+                );
+
+        if (owner != null) {
+            return owner;
+        }
+
+        return redisTemplate.opsForValue().get(
+                buildSilentChatKey(chatId, userId)
+        );
+    }
+
+    /**
+     * The silent owner of a chat for a user, if any.
+     */
+    public String getSilentOwner(
+            UUID chatId,
+            Long userId
+    ) {
+        return redisTemplate.opsForValue().get(
+                buildSilentChatKey(chatId, userId)
+        );
     }
 
     /**
@@ -341,6 +492,147 @@ public class OpenedChatCoordinator {
 
     public String getServerId() {
         return serverId;
+    }
+
+    /**
+     * Removes every silent opened-chat record owned by one
+     * WebSocket session.
+     *
+     * <p>Called when that session closes, so a silent connection
+     * never leaks ownership records behind it. The foreground
+     * "opened chat" slot is deliberately left alone.</p>
+     */
+    public void closeSilentForSession(
+            Long userId,
+            String sessionId
+    ) {
+        String silentSetKey =
+                buildSilentSetKey(userId);
+
+        Set<String> chatIds =
+                redisTemplate.opsForSet()
+                        .members(silentSetKey);
+
+        if (chatIds == null) {
+            return;
+        }
+
+        String expectedOwner =
+                serverId + ":" + sessionId;
+
+        for (String rawChatId : chatIds) {
+
+            UUID chatId;
+
+            try {
+                chatId = UUID.fromString(rawChatId);
+            } catch (IllegalArgumentException e) {
+                /*
+                 * Malformed stale entry — drop it from the set.
+                 */
+                redisTemplate.opsForSet()
+                        .remove(silentSetKey, rawChatId);
+
+                continue;
+            }
+
+            /*
+             * Only clear records this session actually owns, so a
+             * concurrent silent session of the same user survives.
+             * The 3-arg closeSilent re-checks ownership atomically
+             * enough for this cleanup path.
+             */
+            if (expectedOwner.equals(
+                    redisTemplate.opsForValue().get(
+                            buildSilentChatKey(chatId, userId)
+                    )
+            )) {
+                closeSilent(chatId, userId, sessionId);
+            }
+        }
+    }
+
+    /**
+     * Renews the TTL of the silent opened-chat records owned by a
+     * session.
+     *
+     * <p>Silent connections send no {@code /app/heartbeat}, so this
+     * is driven by the transport-level heartbeat monitor, which sees
+     * every session.</p>
+     */
+    public boolean renewSilent(
+            Long userId,
+            String sessionId
+    ) {
+        String silentSetKey =
+                buildSilentSetKey(userId);
+
+        Set<String> chatIds =
+                redisTemplate.opsForSet()
+                        .members(silentSetKey);
+
+        if (chatIds == null
+                || chatIds.isEmpty()) {
+
+            return false;
+        }
+
+        String expectedOwner =
+                serverId + ":" + sessionId;
+
+        boolean renewed = false;
+
+        for (String rawChatId : chatIds) {
+
+            UUID chatId;
+
+            try {
+                chatId = UUID.fromString(rawChatId);
+            } catch (IllegalArgumentException e) {
+                continue;
+            }
+
+            if (!expectedOwner.equals(
+                    redisTemplate.opsForValue().get(
+                            buildSilentChatKey(chatId, userId)
+                    )
+            )) {
+                continue;
+            }
+
+            redisTemplate.expire(
+                    buildSilentChatKey(chatId, userId),
+                    CHAT_TTL
+            );
+
+            renewed = true;
+        }
+
+        if (renewed) {
+            redisTemplate.expire(
+                    silentSetKey,
+                    CHAT_TTL
+            );
+        }
+
+        return renewed;
+    }
+
+    private String buildSilentChatKey(
+            UUID chatId,
+            Long userId
+    ) {
+        return SILENT_CHAT_KEY_PREFIX
+                + chatId
+                + ":"
+                + userId;
+    }
+
+    private String buildSilentSetKey(
+            Long userId
+    ) {
+        return SILENT_SET_KEY_PREFIX
+                + userId;
     }
 
     private String buildChatKey(

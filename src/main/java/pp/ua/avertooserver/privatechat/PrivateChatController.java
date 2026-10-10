@@ -79,17 +79,19 @@ public class PrivateChatController {
             Long userId,
             PrivateChatEventResponse response
     ) {
-        String targetSessionId =
-                sessionRegistry.getSessionId(userId);
+        /*
+         * Fan out to every live session of the user so a chat
+         * activated while it is only connected in the background
+         * is still observed.
+         */
+        for (String targetSessionId :
+                sessionRegistry.getSessionIds(userId)) {
 
-        if (targetSessionId == null) {
-            return;
+            sendToSession(
+                    targetSessionId,
+                    response
+            );
         }
-
-        sendToSession(
-                targetSessionId,
-                response
-        );
     }
 
     private void sendToSession(

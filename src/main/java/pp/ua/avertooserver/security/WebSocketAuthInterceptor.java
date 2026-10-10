@@ -12,6 +12,8 @@ import pp.ua.avertooserver.presence.PresenceService;
 import pp.ua.avertooserver.presence.WebSocketSessionCoordinator;
 import pp.ua.avertooserver.presence.WebSocketSessionRegistry;
 
+import java.util.Map;
+
 @Component
 @RequiredArgsConstructor
 public class WebSocketAuthInterceptor
@@ -19,6 +21,20 @@ public class WebSocketAuthInterceptor
 
     private static final String USER_ID_ATTRIBUTE =
             "userId";
+
+    /**
+     * Native STOMP header marking a connection as a background
+     * (silent) wake-up session. Such a session establishes only
+     * WebRTC signaling and must NOT turn the user "online".
+     */
+    private static final String SILENT_MODE_HEADER =
+            "X-Avertoo-Mode";
+
+    private static final String SILENT_MODE_VALUE =
+            "background";
+
+    private static final String SILENT_ATTRIBUTE =
+            "silent";
 
     private final JwtService jwtService;
 
@@ -76,6 +92,64 @@ public class WebSocketAuthInterceptor
                             userId
                     );
 
+            /*
+             * Bind the STOMP Principal to this exact WebSocket
+             * session. All user-destination sends in this codebase
+             * address a single session (convertAndSendToUser with
+             * the sessionId + simpSessionId header), so the
+             * Principal name must BE the sessionId — otherwise the
+             * broker resolves a "user" named <sessionId> that does
+             * not exist and the frame is silently dropped.
+             *
+             * Done for BOTH lanes (foreground and silent) before
+             * the branch below, so signaling and peer-ready reach
+             * every live session of the user.
+             */
+            accessor.setUser(
+                    (java.security.Principal) () -> sessionId
+            );
+
+            String connectionMode =
+                    accessor.getFirstNativeHeader(
+                            SILENT_MODE_HEADER
+                    );
+
+            /*
+             * Background/silent connections (used to receive
+             * messages without showing the user as online) must
+             * not refresh presence — neither on CONNECT nor on
+             * any subsequent /app/heartbeat.
+             *
+             * They also bypass the single-session enforcement
+             * entirely: a silent session is registered alongside
+             * the foreground one (any number of them may coexist),
+             * so establishing one never closes the chat the user
+             * is currently viewing.
+             *
+             * Mark the session as silent so the heartbeat branch
+             * below can skip presence renewal for it.
+             */
+            if (SILENT_MODE_VALUE.equals(connectionMode)) {
+
+                sessionRegistry.registerSilent(
+                        sessionId,
+                        userId
+                );
+
+                accessor.getSessionAttributes()
+                        .put(
+                                SILENT_ATTRIBUTE,
+                                Boolean.TRUE
+                        );
+
+                return message;
+            }
+
+            /*
+             * Foreground sessions participate in single-session
+             * enforcement: claim ownership so any duplicate session
+             * of this user on another server is closed.
+             */
             sessionRegistry.replace(
                     sessionId,
                     userId
@@ -109,6 +183,38 @@ public class WebSocketAuthInterceptor
                         );
 
                 if (userId != null) {
+
+                    /*
+                     * Keep presence for foreground sessions only.
+                     * A silent (background) session must not renew
+                     * the online state.
+                     */
+                    Map<String, Object> attrs =
+                            accessor.getSessionAttributes();
+
+                    boolean silent =
+                            attrs != null
+                            && Boolean.TRUE.equals(
+                                    attrs.get(
+                                            SILENT_ATTRIBUTE
+                                    )
+                            );
+
+                    /*
+                     * A silent session connects quietly: it only keeps
+                     * its WebSocket registry heartbeat so the connection
+                     * stays open, but it neither renews single-session
+                     * ownership (must not take over a foreground session
+                     * nor be taken over) nor refreshes presence.
+                     */
+                    if (silent) {
+
+                        sessionRegistry.heartbeat(
+                                sessionId
+                        );
+
+                        return message;
+                    }
 
                     boolean owner =
                             sessionCoordinator.renew(

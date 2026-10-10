@@ -20,6 +20,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatPresenceController {
 
+    /**
+     * Native session attribute marking a background (silent)
+     * connection. Mirrors the flag set by the auth interceptor.
+     */
+    private static final String SILENT_ATTRIBUTE =
+            "silent";
+
     private final OpenedChatCoordinator
             openedChatCoordinator;
 
@@ -29,8 +36,10 @@ public class ChatPresenceController {
     /**
      * Registers that the current user has opened a chat.
      *
-     * The user who opens the chat second becomes the
-     * WebRTC initiator.
+     * <p>Foreground and silent sessions use two independent lanes.
+     * A foreground open keeps the "one open chat at a time" rule;
+     * a silent open is unlimited and never evicts it. The user who
+     * opens the chat second becomes the WebRTC initiator.</p>
      */
     @MessageMapping("/private-chat/open")
     public void openChat(
@@ -54,6 +63,9 @@ public class ChatPresenceController {
             return;
         }
 
+        boolean silent =
+                isSilent(sessionAttributes);
+
         /*
          * Validate that the current user actually belongs
          * to this private chat and obtain the counterpart.
@@ -65,7 +77,8 @@ public class ChatPresenceController {
                 );
 
         /*
-         * Register this user's opened-chat state.
+         * Register this user's opened-chat state in the lane that
+         * matches the connection.
          *
          * The returned value tells us whether the other user
          * was already present.
@@ -73,8 +86,14 @@ public class ChatPresenceController {
          * true  -> current user opened second -> initiator
          * false -> current user opened first  -> receiver
          */
-        boolean initiator =
-                openedChatCoordinator.open(
+        boolean initiator = silent
+                ? openedChatCoordinator.openSilent(
+                        request.chatId(),
+                        userId,
+                        otherUserId,
+                        sessionId
+                )
+                : openedChatCoordinator.open(
                         request.chatId(),
                         userId,
                         otherUserId,
@@ -83,9 +102,13 @@ public class ChatPresenceController {
 
         /*
          * Find the other participant's WebSocket session.
+         *
+         * Both lanes are considered: a background session may
+         * rendezvous with a peer viewing the chat in the
+         * foreground, and the other way around.
          */
         String otherOwner =
-                openedChatCoordinator.getOwner(
+                openedChatCoordinator.getOwnerAnywhere(
                         request.chatId(),
                         otherUserId
                 );
@@ -99,10 +122,15 @@ public class ChatPresenceController {
         }
 
         /*
-         * Verify that our own opened-chat record exists.
+         * Verify that our own opened-chat record exists in the
+         * lane we just wrote to.
          */
-        String currentOwner =
-                openedChatCoordinator.getOwner(
+        String currentOwner = silent
+                ? openedChatCoordinator.getSilentOwner(
+                        request.chatId(),
+                        userId
+                )
+                : openedChatCoordinator.getOwner(
                         request.chatId(),
                         userId
                 );
@@ -172,9 +200,34 @@ public class ChatPresenceController {
                 userId
         );
 
-        openedChatCoordinator.close(
-                request.chatId(),
-                userId
+        /*
+         * Tear down the lane this session used, so closing a
+         * background chat never disturbs the foreground one.
+         *
+         * The session id is required so one silent connection
+         * cannot wipe the record of a concurrent one.
+         */
+        if (isSilent(sessionAttributes)) {
+            openedChatCoordinator.closeSilent(
+                    request.chatId(),
+                    userId,
+                    headerAccessor.getSessionId()
+            );
+        } else {
+            openedChatCoordinator.close(
+                    request.chatId(),
+                    userId
+            );
+        }
+    }
+
+    private boolean isSilent(
+            Map<String, Object> sessionAttributes
+    ) {
+        return Boolean.TRUE.equals(
+                sessionAttributes.get(
+                        SILENT_ATTRIBUTE
+                )
         );
     }
 }

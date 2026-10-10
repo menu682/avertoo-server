@@ -86,26 +86,41 @@ public class WebSocketSessionHandlerDecorator
                         sessionId
                 );
 
-        if (userId != null
-                && sessionRegistry.isCurrentSession(
-                userId,
-                sessionId
-        )) {
+        if (userId != null) {
 
-            openedChatCoordinator.closeAll(
-                    userId
-            );
+            /*
+             * A background (silent) session owns only its own
+             * silent chats. It must never clear the foreground
+             * "opened chat" slot, nor release presence, nor take
+             * the user offline — it was never the owner of any of
+             * those.
+             */
+            if (sessionRegistry.isSilent(sessionId)) {
 
-            boolean released =
-                    sessionCoordinator.release(
-                            userId,
-                            sessionId
-                    );
+                openedChatCoordinator.closeSilentForSession(
+                        userId,
+                        sessionId
+                );
+            } else if (sessionRegistry.isCurrentSession(
+                    userId,
+                    sessionId
+            )) {
 
-            if (released) {
-                presenceService.offline(
+                openedChatCoordinator.closeAll(
                         userId
                 );
+
+                boolean released =
+                        sessionCoordinator.release(
+                                userId,
+                                sessionId
+                        );
+
+                if (released) {
+                    presenceService.offline(
+                            userId
+                    );
+                }
             }
         }
 

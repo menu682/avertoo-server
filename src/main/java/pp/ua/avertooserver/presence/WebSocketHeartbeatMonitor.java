@@ -54,10 +54,24 @@ public class WebSocketHeartbeatMonitor {
                         sessionRegistry.getUserId(sessionId);
 
                 if (userId != null) {
-                    openedChatCoordinator.renew(
-                            userId,
-                            sessionId
-                    );
+                    /*
+                     * Renew the opened-chat records of the lane this
+                     * session belongs to. A background (silent)
+                     * session sends no /app/heartbeat, so its chats
+                     * are kept alive by this transport-level check
+                     * for as long as the socket lives.
+                     */
+                    if (sessionRegistry.isSilent(sessionId)) {
+                        openedChatCoordinator.renewSilent(
+                                userId,
+                                sessionId
+                        );
+                    } else {
+                        openedChatCoordinator.renew(
+                                userId,
+                                sessionId
+                        );
+                    }
                 }
 
                 continue;
@@ -71,7 +85,6 @@ public class WebSocketHeartbeatMonitor {
             if (session == null) {
                 continue;
             }
-
             try {
                 if (session.isOpen()) {
                     session.close(
