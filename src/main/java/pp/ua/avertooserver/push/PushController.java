@@ -1,22 +1,20 @@
 package pp.ua.avertooserver.push;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
 /**
- * REST endpoints for device push-token management and peer wake-up.
+ * REST API для реєстрації push-токенів і пробудження пристроїв.
  *
- * <p>All endpoints require an authenticated user (the global
- * security configuration protects every non-permitted route).</p>
+ * Усі операції виконуються від імені автентифікованого користувача.
  */
 @RestController
 @RequestMapping("/api/push")
@@ -26,7 +24,7 @@ public class PushController {
     private final PushService pushService;
 
     /**
-     * Registers the caller's device push token.
+     * Реєструє або оновлює push-токен пристрою.
      */
     @PostMapping("/token")
     public ResponseEntity<Void> registerToken(
@@ -45,7 +43,7 @@ public class PushController {
     }
 
     /**
-     * Removes the caller's device push token.
+     * Видаляє push-токен поточного користувача.
      */
     @DeleteMapping("/token")
     public ResponseEntity<Void> unregisterToken(
@@ -60,7 +58,7 @@ public class PushController {
     }
 
     /**
-     * Asks the backend to wake a peer's devices for a chat.
+     * Просить сервер надіслати команду пробудження іншому учаснику чату.
      */
     @PostMapping("/wake")
     public ResponseEntity<Void> wake(
@@ -79,25 +77,37 @@ public class PushController {
     }
 
     /**
-     * Body of {@code POST /api/push/token}.
+     * Тіло POST /api/push/token.
      */
     public record RegisterTokenRequest(
+            @NotBlank
+            @Size(max = 255)
             String token,
+
+            @NotBlank
+            @Size(max = 20)
             String platform
     ) {
     }
 
     /**
-     * Body of {@code DELETE /api/push/token}.
+     * Тіло DELETE /api/push/token.
      */
-    public record TokenRequest(String token) {
+    public record TokenRequest(
+            @NotBlank
+            @Size(max = 255)
+            String token
+    ) {
     }
 
     /**
-     * Body of {@code POST /api/push/wake}.
+     * Тіло POST /api/push/wake.
      */
     public record WakeRequest(
+            @NotNull
             Long targetUserId,
+
+            @NotNull
             UUID chatId
     ) {
     }

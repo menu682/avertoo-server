@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -12,8 +13,7 @@ public interface PushTokenRepository
         extends JpaRepository<PushToken, PushToken.PushTokenId> {
 
     /**
-     * Inserts a device token or refreshes it when it already
-     * exists for the user (upsert).
+     * Додає токен або оновлює платформу й час останньої реєстрації.
      */
     @Modifying
     @Query(value = """
@@ -32,7 +32,7 @@ public interface PushTokenRepository
     );
 
     /**
-     * Removes a single device token of a user.
+     * Видаляє один токен конкретного користувача.
      */
     @Modifying
     @Query(value = """
@@ -45,7 +45,21 @@ public interface PushTokenRepository
     );
 
     /**
-     * Returns every device token registered by the user.
+     * Видаляє токен з усіх облікових записів, де він зареєстрований.
+     *
+     * Використовується лише після підтвердженої помилки
+     * DeviceNotRegistered від Expo.
+     */
+    @Transactional
+    @Modifying
+    @Query(value = """
+            DELETE FROM device_push_tokens
+            WHERE token = :token
+            """, nativeQuery = true)
+    int deleteAllByToken(@Param("token") String token);
+
+    /**
+     * Повертає всі токени користувача.
      */
     List<PushToken> findByUserId(UUID userId);
 }

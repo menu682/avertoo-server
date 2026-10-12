@@ -3,9 +3,11 @@ package pp.ua.avertooserver.presence;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Collections;
 
 @Service
 @RequiredArgsConstructor
@@ -20,12 +22,56 @@ public class WebSocketSessionCoordinator {
     private static final Duration OWNER_TTL =
             Duration.ofSeconds(60);
 
-    private final RedisTemplate<String, String>
-            redisTemplate;
+    /**
+     * Lua-скрипт атомарно перевіряє власника ключа
+     * та продовжує TTL тільки для очікуваної сесії.
+     *
+     * Перевірка GET і операція EXPIRE виконуються Redis
+     * як одна неподільна операція.
+     *
+     * Повертає:
+     * 1 — TTL успішно продовжено;
+     * 0 — ключ відсутній або власник уже змінився.
+     */
+    private static final DefaultRedisScript<Long> RENEW_SCRIPT =
+            createScript("""
+                    if redis.call('GET', KEYS[1]) == ARGV[1] then
+                        return redis.call('EXPIRE', KEYS[1], ARGV[2])
+                    end
+                    return 0
+                    """);
+
+    /**
+     * Lua-скрипт атомарно перевіряє власника ключа
+     * та видаляє ключ тільки для очікуваної сесії.
+     *
+     * Стара сесія не зможе видалити призначення,
+     * яке вже належить новій сесії.
+     *
+     * Повертає:
+     * 1 — ключ успішно видалено;
+     * 0 — ключ відсутній або власник змінився.
+     */
+    private static final DefaultRedisScript<Long> RELEASE_SCRIPT =
+            createScript("""
+                    if redis.call('GET', KEYS[1]) == ARGV[1] then
+                        return redis.call('DEL', KEYS[1])
+                    end
+                    return 0
+                    """);
+
+    private final RedisTemplate<String, String> redisTemplate;
 
     @Value("${websocket.server-id}")
     private String serverId;
 
+    /**
+     * Призначає користувачу поточну WebSocket-сесію.
+     *
+     * Запис власника разом із TTL виконується однією
+     * атомарною операцією Redis.
+     * Після запису повідомляємо інші екземпляри сервера.
+     */
     public void claim(
             Long userId,
             String sessionId
@@ -48,6 +94,12 @@ public class WebSocketSessionCoordinator {
         );
     }
 
+    /**
+     * Продовжує TTL, тільки якщо ця сесія
+     * все ще є власником ключа.
+     *
+     * Перевірка власника і продовження TTL атомарні.
+     */
     public boolean renew(
             Long userId,
             String sessionId
@@ -58,21 +110,24 @@ public class WebSocketSessionCoordinator {
         String expectedOwner =
                 serverId + ":" + sessionId;
 
-        String currentOwner =
-                redisTemplate.opsForValue().get(key);
-
-        if (!expectedOwner.equals(currentOwner)) {
-            return false;
-        }
-
-        redisTemplate.expire(
-                key,
-                OWNER_TTL
+        Long result = redisTemplate.execute(
+                RENEW_SCRIPT,
+                Collections.singletonList(key),
+                expectedOwner,
+                String.valueOf(OWNER_TTL.toSeconds())
         );
 
-        return true;
+        return Long.valueOf(1L).equals(result);
     }
 
+    /**
+     * Видаляє призначення власника, тільки якщо ключ
+     * усе ще належить цій сесії.
+     *
+     * Перевірка власника і видалення атомарні.
+     * Якщо нова сесія вже виконала claim(), цей виклик
+     * не видалить її призначення.
+     */
     public boolean release(
             Long userId,
             String sessionId
@@ -83,19 +138,34 @@ public class WebSocketSessionCoordinator {
         String expectedOwner =
                 serverId + ":" + sessionId;
 
-        String currentOwner =
-                redisTemplate.opsForValue().get(key);
+        Long result = redisTemplate.execute(
+                RELEASE_SCRIPT,
+                Collections.singletonList(key),
+                expectedOwner
+        );
 
-        if (!expectedOwner.equals(currentOwner)) {
-            return false;
-        }
-
-        redisTemplate.delete(key);
-
-        return true;
+        return Long.valueOf(1L).equals(result);
     }
 
+    /**
+     * Повертає ідентифікатор цього екземпляра сервера.
+     */
     public String getServerId() {
         return serverId;
+    }
+
+    /**
+     * Створює Lua-скрипт, який повертає числовий результат.
+     */
+    private static DefaultRedisScript<Long> createScript(
+            String scriptText
+    ) {
+        DefaultRedisScript<Long> script =
+                new DefaultRedisScript<>();
+
+        script.setScriptText(scriptText);
+        script.setResultType(Long.class);
+
+        return script;
     }
 }
