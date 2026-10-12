@@ -18,6 +18,7 @@ public class PrivateChatController {
     private final SimpMessagingTemplate messagingTemplate;
     private final WebSocketSessionRegistry sessionRegistry;
 
+
     @MessageMapping("/private-chat/create")
     public void createChat(
             PrivateChatCreateRequest request,
