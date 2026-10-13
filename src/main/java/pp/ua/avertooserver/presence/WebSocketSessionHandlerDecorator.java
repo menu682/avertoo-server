@@ -62,6 +62,15 @@ public class WebSocketSessionHandlerDecorator
             WebSocketMessage<?> message
     ) throws Exception {
 
+        System.out.println(
+                "[WS_RAW] SESSION="
+                        + session.getId()
+                        + "; TYPE="
+                        + message.getClass().getSimpleName()
+                        + "; PAYLOAD="
+                        + message.getPayload()
+        );
+
         sessionRegistry.heartbeat(
                 session.getId()
         );
