@@ -58,6 +58,23 @@ public class WebSocketAuthInterceptor
         StompCommand command =
                 accessor.getCommand();
 
+        System.out.println(
+                "[WS_INTERCEPTOR] COMMAND = "
+                        + command
+        );
+
+        if (command == StompCommand.CONNECT) {
+
+            System.out.println(
+                    "[WS_INTERCEPTOR] CONNECT FRAME RECEIVED"
+            );
+
+            System.out.println(
+                    "[WS_INTERCEPTOR] HEADERS = "
+                            + accessor.toNativeHeaderMap()
+            );
+        }
+
         if (StompCommand.CONNECT.equals(command)) {
 
             String authorization =
